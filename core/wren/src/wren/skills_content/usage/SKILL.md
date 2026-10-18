@@ -131,7 +131,10 @@ query, go ahead. Decompose when the SQL would be hard to debug if it fails.
 ### Step 3 — Write, verify, and execute SQL
 
 **For simple queries** (single table or simple MDL-defined JOINs, straightforward aggregation):
-Execute directly:
+If every referenced field and operation is present in the fetched schema context,
+execute directly. If a field or operation is new or uncertain, run `wren dry-run`
+first as described below.
+
 ```bash
 wren --sql 'SELECT c_name, SUM(o_totalprice) FROM orders
 JOIN customer ON orders.o_custkey = customer.c_custkey
@@ -144,13 +147,27 @@ Verify first with dry-plan:
 wren dry-plan --sql 'SELECT ...'
 ```
 
+`dry-plan` only rewrites SQL through the MDL and translates its dialect; it does
+not connect to the database or verify that physical tables and columns exist.
+For a new or uncertain column, function, type, or join, run `dry-run` after
+inspecting the planned SQL and before fetching results:
+```bash
+wren dry-run --sql 'SELECT ...'
+```
+`dry-run` asks the configured data source to validate the planned SQL without
+returning rows. If it fails, do not execute or store the query; use the database
+error to correct the SQL or MDL first. A successful dry-run is a preflight, not
+a guarantee that execution will succeed or that the result is semantically
+correct.
+
 Check the expanded SQL output:
 - Are the correct models and columns referenced?
 - Do the JOINs match expected relationships?
 - Are CTEs expanded correctly?
 
-If the expanded SQL looks wrong, fix before executing.
-If it looks correct, proceed:
+If the expanded SQL looks wrong, fix before proceeding. If it looks correct and
+the SQL uses only known fields and operations, proceed to execution. If any
+database-level detail is uncertain, require a successful `dry-run` first:
 ```bash
 wren --sql 'SELECT ...'
 ```

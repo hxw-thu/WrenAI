@@ -62,7 +62,10 @@ The CTE named `"orders"` shadows the model name, so the rest of your SQL runs ag
 
 ## Diagnosing errors with dry-plan
 
-`dry-plan` shows the expanded SQL without executing it. This separates MDL-level issues from database-level issues.
+`dry-plan` shows the expanded SQL without connecting to the database. It checks
+the MDL rewrite and dialect translation, but it cannot confirm that an
+underlying table or physical column exists. For example, a reference to a
+nonexistent source column can still appear in successfully expanded SQL.
 
 ### Step 1 — Run dry-plan
 
@@ -74,14 +77,30 @@ wren dry-plan --sql "SELECT o_custkey, SUM(o_totalprice) FROM orders GROUP BY 1"
 
 | dry-plan result | Meaning | Fix |
 |-----------------|---------|-----|
-| **Succeeds** with valid SQL | MDL layer is fine; if execution fails, the database rejects the translated SQL | Read the DB error against the dry-plan output — the issue is in the generated SQL or DB state |
+| **Succeeds** with expanded SQL | The MDL rewrite and dialect translation completed; database tables, physical columns, permissions, and runtime behavior have not been checked | If any database-level detail is uncertain, run `wren dry-run` before executing |
 | **Fails** with "No model references found" | Your FROM clause doesn't match any MDL model name | Check model names: `wren memory fetch -q "<name>" --type model --threshold 0` |
 | **Fails** with column error | A column you referenced doesn't exist in the model | Check columns: `wren memory fetch -q "<col>" --model <name> --threshold 0` |
 | **Fails** with qualify error | sqlglot can't resolve an ambiguous or unknown column | Qualify the column explicitly: `model_name.column_name` |
 
-### Step 3 — Compare dry-plan output with DB error
+### Step 3 — Validate against the database when needed
 
-When execution fails but dry-plan succeeds, compare them side by side:
+`dry-run` sends the translated SQL to the configured database for validation
+without returning result rows. Use it to catch errors such as unknown physical
+columns before running the query:
+
+```bash
+wren dry-run --sql "SELECT ..."
+```
+
+If `dry-run` fails, do not execute or store the query. Fix the SQL or MDL based
+on the database error, then repeat the validation. A successful dry-run does
+not guarantee that execution will succeed or that the returned result is
+semantically correct.
+
+### Step 4 — Compare dry-plan output with DB error
+
+When `dry-run` or execution fails after `dry-plan` succeeds, compare them side
+by side:
 
 ```bash
 # Get the expanded SQL
